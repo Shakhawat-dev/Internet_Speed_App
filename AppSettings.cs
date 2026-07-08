@@ -27,6 +27,7 @@ internal sealed class AppSettings
     public int    RefreshIntervalMs { get; set; } = 1000;
     public bool   ShowDownloadLine  { get; set; } = true;
     public bool   ShowUploadLine    { get; set; } = true;
+    public bool   SnapToEdges       { get; set; } = true;
 
     internal static AppSettings Load()
     {

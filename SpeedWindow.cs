@@ -60,7 +60,11 @@ internal sealed class SpeedWindow : Form
     private readonly ToolStripMenuItem _alwaysOnTopItem;
     private readonly ToolStripMenuItem _clickThroughItem;
     private readonly ToolStripMenuItem _showHideItem;
+    private readonly ToolStripMenuItem _sessionItem;
     private readonly NotifyIcon        _trayIcon;
+
+    // Cumulative bytes transferred since the app started (this session).
+    private long _sessionDown, _sessionUp;
 
     private AppSettings  _settings;
     private Font         _font = new("Segoe UI", 13f, FontStyle.Bold);
@@ -87,6 +91,14 @@ internal sealed class SpeedWindow : Form
         _showHideItem = new ToolStripMenuItem("Hide Widget");
         _showHideItem.Click += (_, _) => ToggleWidgetVisible();
 
+        _sessionItem = new ToolStripMenuItem("Session:  ↓ 0 B   ↑ 0 B") { Enabled = false };
+        var resetSessionItem = new ToolStripMenuItem("Reset Session Counter");
+        resetSessionItem.Click += (_, _) =>
+        {
+            _sessionDown = _sessionUp = 0;
+            UpdateSessionText();
+        };
+
         _startupItem = new ToolStripMenuItem("Start with Windows") { Checked = IsAutoStart() };
         _startupItem.Click += (_, _) => ToggleAutoStart(_startupItem);
 
@@ -110,6 +122,9 @@ internal sealed class SpeedWindow : Form
 
         var menu = new ContextMenuStrip();
         menu.Items.Add(_showHideItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_sessionItem);
+        menu.Items.Add(resetSessionItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_alwaysOnTopItem);
         menu.Items.Add(_clickThroughItem);
@@ -160,9 +175,11 @@ internal sealed class SpeedWindow : Form
         {
             if (e.Button != MouseButtons.Left) return;
             _dragging = false;
+            if (_settings.SnapToEdges) SnapToNearestEdge();
             _settings.WindowX = Location.X;
             _settings.WindowY = Location.Y;
             _settings.Save();
+            Render();
         };
 
         // ── Start ─────────────────────────────────────────────────────────────
@@ -210,6 +227,26 @@ internal sealed class SpeedWindow : Form
         int ex = GetWindowLong(Handle, GWL_EXSTYLE);
         _ = SetWindowLong(Handle, GWL_EXSTYLE,
             on ? ex | WS_EX_TRANSPARENT : ex & ~WS_EX_TRANSPARENT);
+    }
+
+    // ── Snap to edges ──────────────────────────────────────────────────────────
+
+    private const int SnapThreshold = 24;  // px — how close to an edge triggers a snap
+    private const int SnapMargin     = 16;  // px — gap left between widget and edge
+
+    private void SnapToNearestEdge()
+    {
+        var wa = Screen.FromPoint(Location).WorkingArea;
+
+        int x = Location.X, y = Location.Y;
+
+        if (Math.Abs(x - wa.Left) <= SnapThreshold)                  x = wa.Left + SnapMargin;
+        else if (Math.Abs(wa.Right - (x + Width)) <= SnapThreshold)  x = wa.Right - Width - SnapMargin;
+
+        if (Math.Abs(y - wa.Top) <= SnapThreshold)                   y = wa.Top + SnapMargin;
+        else if (Math.Abs(wa.Bottom - (y + Height)) <= SnapThreshold) y = wa.Bottom - Height - SnapMargin;
+
+        Location = new Point(x, y);
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -454,23 +491,44 @@ internal sealed class SpeedWindow : Form
         var now     = DateTime.UtcNow;
         var elapsed = (now - _lastSampleTime).TotalSeconds;
         long down = 0, up = 0;
+        long downBytes = Math.Max(0, received - _lastReceived);
+        long upBytes   = Math.Max(0, sent - _lastSent);
         if (elapsed > 0)
         {
-            down = Math.Max(0, (long)((received - _lastReceived) / elapsed));
-            up   = Math.Max(0, (long)((sent - _lastSent) / elapsed));
+            down = (long)(downBytes / elapsed);
+            up   = (long)(upBytes / elapsed);
         }
         _lastReceived   = received;
         _lastSent       = sent;
         _lastSampleTime = now;
+
+        _sessionDown += downBytes;
+        _sessionUp   += upBytes;
 
         _downHist[_histIdx] = down;
         _upHist[_histIdx]   = up;
         _histIdx = (_histIdx + 1) % HistLen;
 
         UpdateSpeedText(down, up);
+        UpdateSessionText();
 
-        var tip = $"↓ {FormatSpeed(down)}  ↑ {FormatSpeed(up)}";
-        _trayIcon.Text = tip.Length > 63 ? tip[..63] : tip;
+        var tip = $"↓ {FormatSpeed(down)}  ↑ {FormatSpeed(up)}\nSession: ↓ {FormatBytes(_sessionDown)}  ↑ {FormatBytes(_sessionUp)}";
+        _trayIcon.Text = tip.Length > 127 ? tip[..127] : tip;
+    }
+
+    private void UpdateSessionText() =>
+        _sessionItem.Text = $"Session:  ↓ {FormatBytes(_sessionDown)}   ↑ {FormatBytes(_sessionUp)}";
+
+    private string FormatBytes(long bytes)
+    {
+        int div = _settings.DecimalUnits ? 1000 : 1024;
+        string[] units = _settings.DecimalUnits
+            ? ["B", "KB", "MB", "GB", "TB"]
+            : ["B", "KiB", "MiB", "GiB", "TiB"];
+        double val = bytes;
+        int u = 0;
+        while (val >= div && u < units.Length - 1) { val /= div; u++; }
+        return u == 0 ? $"{bytes} {units[0]}" : $"{val:F1} {units[u]}";
     }
 
     private void UpdateSpeedText(long downBps, long upBps)

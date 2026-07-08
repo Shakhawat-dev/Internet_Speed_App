@@ -20,6 +20,7 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox      _showUpLineCheck;
     // Window
     private readonly CheckBox      _startWithWindowsCheck;
+    private readonly CheckBox      _snapCheck;
     private readonly ComboBox      _refreshCombo;
 
     internal bool AutoStartResult { get; private set; }
@@ -37,9 +38,12 @@ internal sealed class SettingsForm : Form
 
     internal AppSettings Result { get; private set; }
 
+    private readonly AppSettings _current;
+
     internal SettingsForm(AppSettings current, bool autoStart)
     {
-        Result = current;
+        Result   = current;
+        _current = current;
 
         Text            = "Speed Monitor — Settings";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -169,6 +173,11 @@ internal sealed class SettingsForm : Form
             Text = "Always on top", Checked = current.AlwaysOnTop,
             Location = new Point(10, 20), AutoSize = true,
         };
+        _snapCheck = new CheckBox
+        {
+            Text = "Snap to edges", Checked = current.SnapToEdges,
+            Location = new Point(175, 20), AutoSize = true,
+        };
         _clickThroughCheck = new CheckBox
         {
             Text = "Click-through  (interact via tray icon only)",
@@ -189,7 +198,7 @@ internal sealed class SettingsForm : Form
         };
         _refreshCombo.Items.AddRange(["1 s", "2 s", "5 s"]);
         _refreshCombo.SelectedIndex = current.RefreshIntervalMs switch { 2000 => 1, 5000 => 2, _ => 0 };
-        windowBox.Controls.AddRange([_alwaysOnTopCheck, _clickThroughCheck,
+        windowBox.Controls.AddRange([_alwaysOnTopCheck, _snapCheck, _clickThroughCheck,
                                      _startWithWindowsCheck, _refreshCombo]);
         Controls.Add(windowBox);
 
@@ -255,10 +264,13 @@ internal sealed class SettingsForm : Form
                 ShowUpBars        = _showUpBarsCheck.Checked,
                 ShowDownloadLine  = _showDownLineCheck.Checked,
                 ShowUploadLine    = _showUpLineCheck.Checked,
+                SnapToEdges       = _snapCheck.Checked,
                 DownloadColor     = _downColorBtn.BackColor.ToArgb(),
                 UploadColor       = _upColorBtn.BackColor.ToArgb(),
                 AdapterName       = adapter,
                 RefreshIntervalMs = _refreshCombo.SelectedIndex switch { 1 => 2000, 2 => 5000, _ => 1000 },
+                WindowX           = _current.WindowX,
+                WindowY           = _current.WindowY,
             };
         }
         base.OnFormClosed(e);
