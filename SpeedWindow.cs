@@ -19,6 +19,7 @@ internal sealed class SpeedWindow : Form
     private readonly Label  _upLabel;
     private readonly System.Windows.Forms.Timer _timer;
     private readonly ToolStripMenuItem _startupItem;
+    private readonly ToolStripMenuItem _alwaysOnTopItem;
 
     private AppSettings _settings;
     private long  _lastReceived, _lastSent;
@@ -31,7 +32,6 @@ internal sealed class SpeedWindow : Form
     {
         FormBorderStyle = FormBorderStyle.None;
         StartPosition   = FormStartPosition.Manual;
-        TopMost         = true;
         ShowInTaskbar   = false;
         BackColor       = Color.FromArgb(18, 18, 18);
 
@@ -42,8 +42,18 @@ internal sealed class SpeedWindow : Form
         _startupItem = new ToolStripMenuItem("Start with Windows") { Checked = IsAutoStart() };
         _startupItem.Click += (_, _) => ToggleAutoStart(_startupItem);
 
+        _alwaysOnTopItem = new ToolStripMenuItem("Always on Top") { Checked = true };
+        _alwaysOnTopItem.Click += (_, _) =>
+        {
+            _settings.AlwaysOnTop = !_settings.AlwaysOnTop;
+            _alwaysOnTopItem.Checked = _settings.AlwaysOnTop;
+            TopMost = _settings.AlwaysOnTop;
+            _settings.Save();
+        };
+
         var menu = new ContextMenuStrip();
         menu.Items.Add(_startupItem);
+        menu.Items.Add(_alwaysOnTopItem);
         menu.Items.Add("Settings…", null, (_, _) => OpenSettings());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Application.Exit());
@@ -97,6 +107,8 @@ internal sealed class SpeedWindow : Form
     private void ApplySettings(AppSettings s, bool firstRun)
     {
         Opacity = s.Opacity;
+        TopMost = s.AlwaysOnTop;
+        _alwaysOnTopItem.Checked = s.AlwaysOnTop;
 
         var font = new Font("Segoe UI", s.FontSize, FontStyle.Bold);
         _downLabel.Font = font;

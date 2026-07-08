@@ -12,6 +12,7 @@ internal sealed class SettingsForm : Form
     private readonly RadioButton    _horizontalRadio;
     private readonly RadioButton    _binaryRadio;
     private readonly RadioButton    _decimalRadio;
+    private readonly CheckBox       _alwaysOnTopCheck;
 
     internal AppSettings Result { get; private set; }
 
@@ -22,7 +23,7 @@ internal sealed class SettingsForm : Form
         Text            = "Speed Monitor — Settings";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition   = FormStartPosition.CenterScreen;
-        ClientSize      = new Size(360, 286);
+        ClientSize      = new Size(360, 342);
         MaximizeBox     = false;
         MinimizeBox     = false;
         ShowInTaskbar   = false;
@@ -95,16 +96,27 @@ internal sealed class SettingsForm : Form
         unitsBox.Controls.AddRange([_binaryRadio, _decimalRadio]);
         Controls.Add(unitsBox);
 
+        // ── Window ───────────────────────────────────────────────────────────
+        var windowBox = MakeGroup("Window", 10, 256, 340, 50);
+
+        _alwaysOnTopCheck = new CheckBox
+        {
+            Text = "Always on top", Checked = current.AlwaysOnTop,
+            Location = new Point(10, 20), AutoSize = true,
+        };
+        windowBox.Controls.Add(_alwaysOnTopCheck);
+        Controls.Add(windowBox);
+
         // ── Buttons ──────────────────────────────────────────────────────────
         var cancelBtn = new Button
         {
             Text = "Cancel", DialogResult = DialogResult.Cancel,
-            Location = new Point(196, 258), Size = new Size(74, 26),
+            Location = new Point(196, 314), Size = new Size(74, 26),
         };
         var okBtn = new Button
         {
             Text = "OK", DialogResult = DialogResult.OK,
-            Location = new Point(276, 258), Size = new Size(74, 26),
+            Location = new Point(276, 314), Size = new Size(74, 26),
         };
         Controls.AddRange([cancelBtn, okBtn]);
         AcceptButton = okBtn;
@@ -121,6 +133,7 @@ internal sealed class SettingsForm : Form
                 FontSize     = (float)_fontSpinner.Value,
                 Horizontal   = _horizontalRadio.Checked,
                 DecimalUnits = _decimalRadio.Checked,
+                AlwaysOnTop  = _alwaysOnTopCheck.Checked,
             };
         }
         base.OnFormClosed(e);

@@ -12,6 +12,7 @@ internal sealed class AppSettings
     public float  FontSize { get; set; } = 13f;
     public bool   Horizontal    { get; set; } = false;
     public bool   DecimalUnits  { get; set; } = false; // false = KiB/MiB (1024), true = KB/MB (1000)
+    public bool   AlwaysOnTop   { get; set; } = true;
 
     internal static AppSettings Load()
     {
