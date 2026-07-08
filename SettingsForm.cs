@@ -5,14 +5,18 @@ namespace InternetSpeedApp;
 
 internal sealed class SettingsForm : Form
 {
-    private readonly TrackBar       _opacityBar;
-    private readonly Label          _opacityValueLabel;
-    private readonly NumericUpDown  _fontSpinner;
-    private readonly RadioButton    _verticalRadio;
-    private readonly RadioButton    _horizontalRadio;
-    private readonly RadioButton    _binaryRadio;
-    private readonly RadioButton    _decimalRadio;
-    private readonly CheckBox       _alwaysOnTopCheck;
+    private readonly TrackBar      _bgOpacityBar;
+    private readonly Label         _bgOpacityValueLabel;
+    private readonly TrackBar      _textOpacityBar;
+    private readonly Label         _textOpacityValueLabel;
+    private readonly NumericUpDown _fontSpinner;
+    private readonly RadioButton   _verticalRadio;
+    private readonly RadioButton   _horizontalRadio;
+    private readonly RadioButton   _binaryRadio;
+    private readonly RadioButton   _decimalRadio;
+    private readonly CheckBox      _alwaysOnTopCheck;
+    private readonly Button        _downColorBtn;
+    private readonly Button        _upColorBtn;
 
     internal AppSettings Result { get; private set; }
 
@@ -23,50 +27,57 @@ internal sealed class SettingsForm : Form
         Text            = "Speed Monitor — Settings";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition   = FormStartPosition.CenterScreen;
-        ClientSize      = new Size(360, 342);
+        ClientSize      = new Size(360, 438);
         MaximizeBox     = false;
         MinimizeBox     = false;
         ShowInTaskbar   = false;
 
         // ── Appearance ──────────────────────────────────────────────────────
-        var appearBox = MakeGroup("Appearance", 10, 10, 340, 102);
+        var appearBox = MakeGroup("Appearance", 10, 10, 340, 196);
 
-        AddLabel(appearBox, "Opacity:", 10, 22);
-        int initialOpacity = (int)(current.Opacity * 100);
-        _opacityValueLabel = new Label
-        {
-            Text = $"{initialOpacity}%",
-            Location = new Point(292, 24), Size = new Size(38, 20),
-            TextAlign = ContentAlignment.MiddleLeft,
-        };
-        appearBox.Controls.Add(_opacityValueLabel);
+        // Background opacity
+        AddLabel(appearBox, "Bg opacity:", 10, 22);
+        int initBg = (int)(current.BackgroundOpacity * 100);
+        _bgOpacityValueLabel = MakeValueLabel(appearBox, initBg, 292, 24);
+        _bgOpacityBar = MakeTrackBar(appearBox, initBg, 90, 16);
+        _bgOpacityBar.ValueChanged += (_, _) => _bgOpacityValueLabel.Text = $"{_bgOpacityBar.Value}%";
 
-        _opacityBar = new TrackBar
-        {
-            Minimum = 20, Maximum = 100,
-            Value = initialOpacity,
-            TickFrequency = 10, SmallChange = 5,
-            Width = 202, Location = new Point(84, 16),
-        };
-        _opacityBar.ValueChanged += (_, _) => _opacityValueLabel.Text = $"{_opacityBar.Value}%";
-        appearBox.Controls.Add(_opacityBar);
+        // Text opacity
+        AddLabel(appearBox, "Text opacity:", 10, 62);
+        int initText = (int)(current.TextOpacity * 100);
+        _textOpacityValueLabel = MakeValueLabel(appearBox, initText, 292, 64);
+        _textOpacityBar = MakeTrackBar(appearBox, initText, 90, 56);
+        _textOpacityBar.ValueChanged += (_, _) => _textOpacityValueLabel.Text = $"{_textOpacityBar.Value}%";
 
-        AddLabel(appearBox, "Font size:", 10, 62);
+        // Font size
+        AddLabel(appearBox, "Font size:", 10, 102);
         _fontSpinner = new NumericUpDown
         {
             Minimum = 8, Maximum = 28,
             Value = (decimal)current.FontSize,
             DecimalPlaces = 0, Width = 58,
-            Location = new Point(84, 59),
+            Location = new Point(90, 99),
         };
         appearBox.Controls.Add(_fontSpinner);
-        AddLabel(appearBox, "pt", 148, 62);
+        AddLabel(appearBox, "pt", 154, 102);
+
+        // Colors
+        AddLabel(appearBox, "Download:", 10, 148);
+        _downColorBtn = MakeColorBtn(Color.FromArgb(current.DownloadColor));
+        _downColorBtn.Location = new Point(84, 145);
+        _downColorBtn.Click += (_, _) => PickColor(_downColorBtn);
+        appearBox.Controls.Add(_downColorBtn);
+
+        AddLabel(appearBox, "Upload:", 162, 148);
+        _upColorBtn = MakeColorBtn(Color.FromArgb(current.UploadColor));
+        _upColorBtn.Location = new Point(220, 145);
+        _upColorBtn.Click += (_, _) => PickColor(_upColorBtn);
+        appearBox.Controls.Add(_upColorBtn);
 
         Controls.Add(appearBox);
 
         // ── Layout ──────────────────────────────────────────────────────────
-        var layoutBox = MakeGroup("Layout", 10, 122, 340, 58);
-
+        var layoutBox = MakeGroup("Layout", 10, 216, 340, 58);
         _verticalRadio = new RadioButton
         {
             Text = "Vertical", Checked = !current.Horizontal,
@@ -81,8 +92,7 @@ internal sealed class SettingsForm : Form
         Controls.Add(layoutBox);
 
         // ── Units ────────────────────────────────────────────────────────────
-        var unitsBox = MakeGroup("Units", 10, 190, 340, 58);
-
+        var unitsBox = MakeGroup("Units", 10, 284, 340, 58);
         _binaryRadio = new RadioButton
         {
             Text = "Binary  (KiB / MiB)", Checked = !current.DecimalUnits,
@@ -97,8 +107,7 @@ internal sealed class SettingsForm : Form
         Controls.Add(unitsBox);
 
         // ── Window ───────────────────────────────────────────────────────────
-        var windowBox = MakeGroup("Window", 10, 256, 340, 50);
-
+        var windowBox = MakeGroup("Window", 10, 352, 340, 50);
         _alwaysOnTopCheck = new CheckBox
         {
             Text = "Always on top", Checked = current.AlwaysOnTop,
@@ -111,12 +120,12 @@ internal sealed class SettingsForm : Form
         var cancelBtn = new Button
         {
             Text = "Cancel", DialogResult = DialogResult.Cancel,
-            Location = new Point(196, 314), Size = new Size(74, 26),
+            Location = new Point(196, 410), Size = new Size(74, 26),
         };
         var okBtn = new Button
         {
             Text = "OK", DialogResult = DialogResult.OK,
-            Location = new Point(276, 314), Size = new Size(74, 26),
+            Location = new Point(276, 410), Size = new Size(74, 26),
         };
         Controls.AddRange([cancelBtn, okBtn]);
         AcceptButton = okBtn;
@@ -129,14 +138,58 @@ internal sealed class SettingsForm : Form
         {
             Result = new AppSettings
             {
-                Opacity      = _opacityBar.Value / 100.0,
-                FontSize     = (float)_fontSpinner.Value,
-                Horizontal   = _horizontalRadio.Checked,
-                DecimalUnits = _decimalRadio.Checked,
-                AlwaysOnTop  = _alwaysOnTopCheck.Checked,
+                BackgroundOpacity = _bgOpacityBar.Value   / 100.0,
+                TextOpacity       = _textOpacityBar.Value / 100.0,
+                FontSize          = (float)_fontSpinner.Value,
+                Horizontal        = _horizontalRadio.Checked,
+                DecimalUnits      = _decimalRadio.Checked,
+                AlwaysOnTop       = _alwaysOnTopCheck.Checked,
+                DownloadColor     = _downColorBtn.BackColor.ToArgb(),
+                UploadColor       = _upColorBtn.BackColor.ToArgb(),
             };
         }
         base.OnFormClosed(e);
+    }
+
+    private static void PickColor(Button btn)
+    {
+        using var dlg = new ColorDialog { Color = btn.BackColor, FullOpen = true };
+        if (dlg.ShowDialog() == DialogResult.OK)
+            btn.BackColor = dlg.Color;
+    }
+
+    private static Button MakeColorBtn(Color color) => new()
+    {
+        BackColor = color,
+        FlatStyle = FlatStyle.Flat,
+        Size      = new Size(60, 24),
+        Text      = "",
+        FlatAppearance = { BorderColor = Color.Gray },
+    };
+
+    private static TrackBar MakeTrackBar(Control parent, int value, int x, int y)
+    {
+        var bar = new TrackBar
+        {
+            Minimum = 10, Maximum = 100,
+            Value = value,
+            TickFrequency = 10, SmallChange = 5,
+            Width = 190, Location = new Point(x, y),
+        };
+        parent.Controls.Add(bar);
+        return bar;
+    }
+
+    private static Label MakeValueLabel(Control parent, int value, int x, int y)
+    {
+        var lbl = new Label
+        {
+            Text = $"{value}%",
+            Location = new Point(x, y), Size = new Size(38, 20),
+            TextAlign = ContentAlignment.MiddleLeft,
+        };
+        parent.Controls.Add(lbl);
+        return lbl;
     }
 
     private static GroupBox MakeGroup(string title, int x, int y, int w, int h) => new()
