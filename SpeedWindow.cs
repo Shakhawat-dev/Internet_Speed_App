@@ -66,6 +66,22 @@ internal sealed class SpeedWindow : Form
     // Cumulative bytes transferred since the app started (this session).
     private long _sessionDown, _sessionUp;
 
+    // Most recent per-second speeds (bytes/s).
+    private long _curDown, _curUp;
+
+    // Persistent daily/monthly usage history.
+    private readonly UsageTracker _usage = UsageTracker.Load();
+    private int _ticksSinceUsageSave;
+
+    // Live ping + connection-down alerting.
+    private readonly PingMonitor _ping = new();
+    private bool _wasUp = true;
+
+    // Monthly-cap notifications (fired once each per session).
+    private bool _capWarned80, _capWarned100;
+
+    private DashboardForm? _dashboard;
+
     private AppSettings  _settings;
     private Font         _font = new("Segoe UI", 13f, FontStyle.Bold);
     private RectangleF   _downRect, _upRect;
@@ -121,6 +137,7 @@ internal sealed class SpeedWindow : Form
         };
 
         var menu = new ContextMenuStrip();
+        menu.Items.Add("Dashboard…", null, (_, _) => OpenDashboard());
         menu.Items.Add(_showHideItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_sessionItem);
@@ -158,7 +175,7 @@ internal sealed class SpeedWindow : Form
 
         MouseDown += (_, e) =>
         {
-            if (e.Button != MouseButtons.Left) return;
+            if (e.Button != MouseButtons.Left || _settings.LockPosition) return;
             _dragging            = true;
             _mouseDownScreen     = MousePosition;
             _locationAtMouseDown = Location;
@@ -249,6 +266,21 @@ internal sealed class SpeedWindow : Form
         Location = new Point(x, y);
     }
 
+    // ── Dashboard ──────────────────────────────────────────────────────────────
+
+    private void OpenDashboard()
+    {
+        if (_dashboard is { IsDisposed: false })
+        {
+            _dashboard.WindowState = FormWindowState.Normal;
+            _dashboard.Activate();
+            return;
+        }
+        _dashboard = new DashboardForm(this);
+        _dashboard.FormClosed += (_, _) => _dashboard = null;
+        _dashboard.Show();
+    }
+
     // ── Settings ─────────────────────────────────────────────────────────────
 
     private void OpenSettings()
@@ -267,6 +299,7 @@ internal sealed class SpeedWindow : Form
         }
         _settings = form.Result;
         _settings.Save();
+        _capWarned80 = _capWarned100 = false;  // re-arm cap warnings for the new cap
         ApplySettings(_settings, firstRun: false);
     }
 
@@ -291,7 +324,15 @@ internal sealed class SpeedWindow : Form
         // textH = height occupied by visible text rows (rows × lh, plus 4px gap between them)
         int textH = (showDown ? lh + 4 : 0) + (showUp ? lh + 4 : 0) - 4;
 
-        if (s.Horizontal)
+        if (s.CompactMode)
+        {
+            // Single tight row, both metrics side by side, minimal padding.
+            _downRect  = new RectangleF(6, 4, lw, lh);
+            _upRect    = new RectangleF(6 + lw, 4, lw, lh);
+            ClientSize = new Size(2 * lw + 12, lh + 8 + spark);
+            _sparkRect = new Rectangle(6, lh + 10, Width - 12, SparkH);
+        }
+        else if (s.Horizontal)
         {
             int x = 10;
             _downRect = showDown ? new RectangleF(x, 8, lw, lh) : RectangleF.Empty;
@@ -355,8 +396,8 @@ internal sealed class SpeedWindow : Form
             using var upBrush   = new SolidBrush(upBase);
 
             var fmt = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
-            if (_settings.ShowDownloadLine) g.DrawString(_downText, _font, downBrush, _downRect, fmt);
-            if (_settings.ShowUploadLine)   g.DrawString(_upText,   _font, upBrush,   _upRect,   fmt);
+            if (!_downRect.IsEmpty) g.DrawString(_downText, _font, downBrush, _downRect, fmt);
+            if (!_upRect.IsEmpty)   g.DrawString(_upText,   _font, upBrush,   _upRect,   fmt);
 
             if (_settings.ShowSparkline)
                 DrawSparkline(g, _sparkRect, downBase, upBase);
@@ -502,8 +543,16 @@ internal sealed class SpeedWindow : Form
         _lastSent       = sent;
         _lastSampleTime = now;
 
+        _curDown = down;
+        _curUp   = up;
+
         _sessionDown += downBytes;
         _sessionUp   += upBytes;
+
+        _usage.Add(downBytes, upBytes);
+        if (++_ticksSinceUsageSave >= 30) { _usage.Save(); _ticksSinceUsageSave = 0; }
+
+        CheckMonthlyCap();
 
         _downHist[_histIdx] = down;
         _upHist[_histIdx]   = up;
@@ -512,24 +561,67 @@ internal sealed class SpeedWindow : Form
         UpdateSpeedText(down, up);
         UpdateSessionText();
 
+        if (_settings.PingEnabled)
+        {
+            _ping.Host = _settings.PingHost;
+            _ = _ping.PingOnceAsync();
+            CheckConnectionState();
+        }
+
+        _dashboard?.RefreshData();
+
         var tip = $"↓ {FormatSpeed(down)}  ↑ {FormatSpeed(up)}\nSession: ↓ {FormatBytes(_sessionDown)}  ↑ {FormatBytes(_sessionUp)}";
         _trayIcon.Text = tip.Length > 127 ? tip[..127] : tip;
+    }
+
+    // Live speed / session accessors for the dashboard.
+    internal (long down, long up) CurrentSpeed  => (_curDown, _curUp);
+    internal (long down, long up) SessionTotals => (_sessionDown, _sessionUp);
+    internal UsageTracker Usage => _usage;
+    internal PingMonitor  Ping  => _ping;
+    internal AppSettings  Settings => _settings;
+
+    internal void ResetSession()
+    {
+        _sessionDown = _sessionUp = 0;
+        UpdateSessionText();
+    }
+
+    private void CheckConnectionState()
+    {
+        bool up = _ping.IsUp;
+        if (_wasUp && !up)
+            _trayIcon.ShowBalloonTip(3000, "Speed Monitor",
+                $"Connection lost — no reply from {_settings.PingHost}", ToolTipIcon.Warning);
+        _wasUp = up;
+    }
+
+    private void CheckMonthlyCap()
+    {
+        if (_settings.MonthlyCapBytes <= 0) return;
+        var (md, mu) = _usage.Month;
+        double pct = (md + mu) * 100.0 / _settings.MonthlyCapBytes;
+
+        if (pct >= 100 && !_capWarned100)
+        {
+            _capWarned100 = true;
+            _trayIcon.ShowBalloonTip(5000, "Data cap reached",
+                $"You've used 100% of your {FormatBytes(_settings.MonthlyCapBytes)} monthly cap.",
+                ToolTipIcon.Warning);
+        }
+        else if (pct >= 80 && !_capWarned80)
+        {
+            _capWarned80 = true;
+            _trayIcon.ShowBalloonTip(5000, "Data cap warning",
+                $"You've used 80% of your {FormatBytes(_settings.MonthlyCapBytes)} monthly cap.",
+                ToolTipIcon.Info);
+        }
     }
 
     private void UpdateSessionText() =>
         _sessionItem.Text = $"Session:  ↓ {FormatBytes(_sessionDown)}   ↑ {FormatBytes(_sessionUp)}";
 
-    private string FormatBytes(long bytes)
-    {
-        int div = _settings.DecimalUnits ? 1000 : 1024;
-        string[] units = _settings.DecimalUnits
-            ? ["B", "KB", "MB", "GB", "TB"]
-            : ["B", "KiB", "MiB", "GiB", "TiB"];
-        double val = bytes;
-        int u = 0;
-        while (val >= div && u < units.Length - 1) { val /= div; u++; }
-        return u == 0 ? $"{bytes} {units[0]}" : $"{val:F1} {units[u]}";
-    }
+    private string FormatBytes(long bytes) => Format.Bytes(bytes, _settings.DecimalUnits);
 
     private void UpdateSpeedText(long downBps, long upBps)
     {
@@ -538,15 +630,8 @@ internal sealed class SpeedWindow : Form
         if (IsHandleCreated) Render();
     }
 
-    private string FormatSpeed(long bps)
-    {
-        int div      = _settings.DecimalUnits ? 1000 : 1024;
-        string kUnit = _settings.DecimalUnits ? "KB/s"  : "KiB/s";
-        string mUnit = _settings.DecimalUnits ? "MB/s"  : "MiB/s";
-        if (bps >= (long)div * div) return $"{bps / ((double)div * div):F1} {mUnit}";
-        if (bps >= div)             return $"{bps / (double)div:F0} {kUnit}";
-        return $"{bps} B/s";
-    }
+    private string FormatSpeed(long bps) =>
+        _settings.ShowBits ? Format.SpeedBits(bps) : Format.Speed(bps, _settings.DecimalUnits);
 
     // ── Tray icon ────────────────────────────────────────────────────────────
 
@@ -608,6 +693,7 @@ internal sealed class SpeedWindow : Form
     {
         if (disposing)
         {
+            _usage.Save();
             _timer.Dispose();
             _font.Dispose();
             _trayIcon.Visible = false;

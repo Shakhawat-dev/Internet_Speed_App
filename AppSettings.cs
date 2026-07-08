@@ -28,6 +28,13 @@ internal sealed class AppSettings
     public bool   ShowDownloadLine  { get; set; } = true;
     public bool   ShowUploadLine    { get; set; } = true;
     public bool   SnapToEdges       { get; set; } = true;
+    public bool   PingEnabled       { get; set; } = true;
+    public string PingHost          { get; set; } = "8.8.8.8";
+    public bool   ShowPingOnWidget  { get; set; } = false;
+    public long   MonthlyCapBytes   { get; set; } = 0;  // 0 = no cap
+    public bool   ShowBits          { get; set; } = false;  // Mbps instead of MiB/s
+    public bool   CompactMode       { get; set; } = false;  // single combined line
+    public bool   LockPosition      { get; set; } = false;
 
     internal static AppSettings Load()
     {
