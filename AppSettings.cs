@@ -13,10 +13,20 @@ internal sealed class AppSettings
     public bool   Horizontal        { get; set; } = false;
     public bool   DecimalUnits      { get; set; } = false;
     public bool   AlwaysOnTop       { get; set; } = true;
+    public bool   ClickThrough      { get; set; } = false;
+    public bool   ShowSparkline     { get; set; } = true;
+    public bool   ShowDownBars      { get; set; } = true;
+    public bool   ShowUpBars        { get; set; } = true;
     public double BackgroundOpacity { get; set; } = 0.85;
     public double TextOpacity       { get; set; } = 1.0;
     public int    DownloadColor     { get; set; } = Color.FromArgb(60, 220, 60).ToArgb();
     public int    UploadColor       { get; set; } = Color.FromArgb(255, 160, 30).ToArgb();
+    public string AdapterName       { get; set; } = "";  // empty = all adapters
+    public int    WindowX           { get; set; } = int.MinValue;  // int.MinValue = use default position
+    public int    WindowY           { get; set; } = int.MinValue;
+    public int    RefreshIntervalMs { get; set; } = 1000;
+    public bool   ShowDownloadLine  { get; set; } = true;
+    public bool   ShowUploadLine    { get; set; } = true;
 
     internal static AppSettings Load()
     {

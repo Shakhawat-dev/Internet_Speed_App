@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -27,21 +28,39 @@ internal sealed class SpeedWindow : Form
     [DllImport("gdi32.dll")]  private static extern bool   DeleteObject(IntPtr h);
     [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern int    ReleaseDC(IntPtr hWnd, IntPtr hDC);
+    [DllImport("user32.dll")] private static extern int    GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("user32.dll")] private static extern int    SetWindowLong(IntPtr hwnd, int index, int value);
+    [DllImport("user32.dll")] private static extern bool   DestroyIcon(IntPtr hIcon);
 
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     [StructLayout(LayoutKind.Sequential)] struct SIZE  { public int cx, cy; }
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     struct BLENDFUNCTION { public byte BlendOp, BlendFlags, SourceConstantAlpha, AlphaFormat; }
 
-    private const uint ULW_ALPHA    = 2;
-    private const byte AC_SRC_OVER  = 0;
-    private const byte AC_SRC_ALPHA = 1;
+    private const uint ULW_ALPHA      = 2;
+    private const byte AC_SRC_OVER   = 0;
+    private const byte AC_SRC_ALPHA  = 1;
+    private const int  GWL_EXSTYLE   = -20;
+    private const int  WS_EX_TRANSPARENT = 0x00000020;
+
+    // ── Sparkline ────────────────────────────────────────────────────────────
+
+    private const int HistLen = 60;
+    private const int SparkH  = 36;   // total height of sparkline area
+
+    private readonly long[] _downHist = new long[HistLen];
+    private readonly long[] _upHist   = new long[HistLen];
+    private int       _histIdx;
+    private Rectangle _sparkRect;
 
     // ── Fields ────────────────────────────────────────────────────────────────
 
     private readonly System.Windows.Forms.Timer _timer;
     private readonly ToolStripMenuItem _startupItem;
     private readonly ToolStripMenuItem _alwaysOnTopItem;
+    private readonly ToolStripMenuItem _clickThroughItem;
+    private readonly ToolStripMenuItem _showHideItem;
+    private readonly NotifyIcon        _trayIcon;
 
     private AppSettings  _settings;
     private Font         _font = new("Segoe UI", 13f, FontStyle.Bold);
@@ -63,6 +82,11 @@ internal sealed class SpeedWindow : Form
         ShowInTaskbar   = false;
         BackColor       = Color.Black;
 
+        // ── Menu items ───────────────────────────────────────────────────────
+
+        _showHideItem = new ToolStripMenuItem("Hide Widget");
+        _showHideItem.Click += (_, _) => ToggleWidgetVisible();
+
         _startupItem = new ToolStripMenuItem("Start with Windows") { Checked = IsAutoStart() };
         _startupItem.Click += (_, _) => ToggleAutoStart(_startupItem);
 
@@ -75,13 +99,47 @@ internal sealed class SpeedWindow : Form
             _settings.Save();
         };
 
+        _clickThroughItem = new ToolStripMenuItem("Click-Through") { Checked = false };
+        _clickThroughItem.Click += (_, _) =>
+        {
+            _settings.ClickThrough    = !_settings.ClickThrough;
+            _clickThroughItem.Checked = _settings.ClickThrough;
+            ApplyClickThrough(_settings.ClickThrough);
+            _settings.Save();
+        };
+
         var menu = new ContextMenuStrip();
-        menu.Items.Add(_startupItem);
+        menu.Items.Add(_showHideItem);
+        menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_alwaysOnTopItem);
+        menu.Items.Add(_clickThroughItem);
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(_startupItem);
         menu.Items.Add("Settings…", null, (_, _) => OpenSettings());
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add("Exit", null, (_, _) => Application.Exit());
+        menu.Items.Add("Exit", null, (_, _) =>
+        {
+            _trayIcon.Visible = false;
+            Application.Exit();
+        });
+
         ContextMenuStrip = menu;
+
+        // ── Tray icon ────────────────────────────────────────────────────────
+
+        _trayIcon = new NotifyIcon
+        {
+            Icon             = CreateTrayIcon(),
+            Text             = "Speed Monitor",
+            Visible          = true,
+            ContextMenuStrip = menu,
+        };
+        _trayIcon.MouseDoubleClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left) ToggleWidgetVisible();
+        };
+
+        // ── Drag ─────────────────────────────────────────────────────────────
 
         MouseDown += (_, e) =>
         {
@@ -98,7 +156,16 @@ internal sealed class SpeedWindow : Form
                 _locationAtMouseDown.Y + MousePosition.Y - _mouseDownScreen.Y);
             Render();
         };
-        MouseUp += (_, e) => { if (e.Button == MouseButtons.Left) _dragging = false; };
+        MouseUp += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            _dragging = false;
+            _settings.WindowX = Location.X;
+            _settings.WindowY = Location.Y;
+            _settings.Save();
+        };
+
+        // ── Start ─────────────────────────────────────────────────────────────
 
         (_lastReceived, _lastSent) = NetworkStats.GetTotals();
         _lastSampleTime = DateTime.UtcNow;
@@ -117,15 +184,50 @@ internal sealed class SpeedWindow : Form
         base.OnHandleCreated(e);
         int pref = DWMWCP_ROUND;
         DwmSetWindowAttribute(Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref pref, sizeof(int));
+        ApplyClickThrough(_settings.ClickThrough);
         Render();
+    }
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        if (Visible && IsHandleCreated) Render();
+    }
+
+    // ── Widget visibility ────────────────────────────────────────────────────
+
+    private void ToggleWidgetVisible()
+    {
+        Visible               = !Visible;
+        _showHideItem.Text    = Visible ? "Hide Widget" : "Show Widget";
+    }
+
+    // ── Click-through ────────────────────────────────────────────────────────
+
+    private void ApplyClickThrough(bool on)
+    {
+        if (!IsHandleCreated) return;
+        int ex = GetWindowLong(Handle, GWL_EXSTYLE);
+        _ = SetWindowLong(Handle, GWL_EXSTYLE,
+            on ? ex | WS_EX_TRANSPARENT : ex & ~WS_EX_TRANSPARENT);
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
 
     private void OpenSettings()
     {
-        using var form = new SettingsForm(_settings);
+        using var form = new SettingsForm(_settings, IsAutoStart());
         if (form.ShowDialog(this) != DialogResult.OK) return;
+        if (form.AutoStartResult != IsAutoStart())
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
+            if (key is not null)
+            {
+                if (form.AutoStartResult) key.SetValue(AppName, Application.ExecutablePath);
+                else                      key.DeleteValue(AppName, false);
+            }
+            _startupItem.Checked = form.AutoStartResult;
+        }
         _settings = form.Result;
         _settings.Save();
         ApplySettings(_settings, firstRun: false);
@@ -133,32 +235,55 @@ internal sealed class SpeedWindow : Form
 
     private void ApplySettings(AppSettings s, bool firstRun)
     {
-        TopMost                  = s.AlwaysOnTop;
-        _alwaysOnTopItem.Checked = s.AlwaysOnTop;
-        _font                    = new Font("Segoe UI", s.FontSize, FontStyle.Bold);
+        TopMost                   = s.AlwaysOnTop;
+        _alwaysOnTopItem.Checked  = s.AlwaysOnTop;
+        _clickThroughItem.Checked = s.ClickThrough;
+        _font                     = new Font("Segoe UI", s.FontSize, FontStyle.Bold);
+        _timer.Interval           = s.RefreshIntervalMs;
 
         var probe = s.DecimalUnits ? "↓  999.9 MB/s" : "↓  999.9 MiB/s";
-        var sz = TextRenderer.MeasureText(probe, _font);
-        int lw = sz.Width + 10;
-        int lh = sz.Height + 6;
+        var sz    = TextRenderer.MeasureText(probe, _font);
+        int lw    = sz.Width + 10;
+        int lh    = sz.Height + 6;
+        int spark = s.ShowSparkline ? SparkH + 8 : 0;
+
+        bool showDown = s.ShowDownloadLine;
+        bool showUp   = s.ShowUploadLine;
+        if (!showDown && !showUp) { showDown = true; showUp = true; }
+
+        // textH = height occupied by visible text rows (rows × lh, plus 4px gap between them)
+        int textH = (showDown ? lh + 4 : 0) + (showUp ? lh + 4 : 0) - 4;
 
         if (s.Horizontal)
         {
-            _downRect  = new RectangleF(10, 8, lw, lh);
-            _upRect    = new RectangleF(10 + lw + 8, 8, lw, lh);
-            ClientSize = new Size(10 + lw * 2 + 8 + 10, lh + 16);
+            int x = 10;
+            _downRect = showDown ? new RectangleF(x, 8, lw, lh) : RectangleF.Empty;
+            if (showDown) x += lw + 8;
+            _upRect   = showUp  ? new RectangleF(x, 8, lw, lh) : RectangleF.Empty;
+            int cols  = (showDown ? 1 : 0) + (showUp ? 1 : 0);
+            ClientSize = new Size(10 + cols * lw + (cols - 1) * 8 + 10, lh + 16 + spark);
+            _sparkRect = new Rectangle(6, lh + 20, Width - 12, SparkH);
         }
         else
         {
-            _downRect  = new RectangleF(10, 8, lw, lh);
-            _upRect    = new RectangleF(10, 8 + lh + 4, lw, lh);
-            ClientSize = new Size(lw + 20, 8 + lh * 2 + 4 + 8);
+            int y = 8;
+            _downRect = showDown ? new RectangleF(10, y, lw, lh) : RectangleF.Empty;
+            if (showDown) y += lh + 4;
+            _upRect   = showUp  ? new RectangleF(10, y, lw, lh) : RectangleF.Empty;
+            ClientSize = new Size(lw + 20, 8 + textH + 8 + spark);
+            _sparkRect = new Rectangle(6, 8 + textH + 8 + 4, Width - 12, SparkH);
         }
+
+        ApplyClickThrough(s.ClickThrough);
 
         if (firstRun)
         {
-            var wa = Screen.PrimaryScreen!.WorkingArea;
-            Location = new Point(wa.Right - Width - 16, wa.Bottom - Height - 16);
+            bool onScreen = s.WindowX != int.MinValue
+                && Screen.AllScreens.Any(sc => sc.WorkingArea.Contains(s.WindowX, s.WindowY));
+            Location = onScreen
+                ? new Point(s.WindowX, s.WindowY)
+                : new Point(Screen.PrimaryScreen!.WorkingArea.Right  - Width  - 16,
+                            Screen.PrimaryScreen!.WorkingArea.Bottom - Height - 16);
         }
 
         if (IsHandleCreated) Render();
@@ -173,52 +298,131 @@ internal sealed class SpeedWindow : Form
         int bgA   = Clamp255(_settings.BackgroundOpacity);
         int textA = Clamp255(_settings.TextOpacity);
 
+        var downBase = Color.FromArgb(_settings.DownloadColor);
+        var upBase   = Color.FromArgb(_settings.UploadColor);
+
         using var bmp = new Bitmap(Width, Height, PixelFormat.Format32bppArgb);
         using (var g = Graphics.FromImage(bmp))
         {
-            g.SmoothingMode     = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.SmoothingMode     = SmoothingMode.AntiAlias;
 
-            using var bgBrush     = new SolidBrush(Color.FromArgb(bgA, 18, 18, 18));
-            using var borderPen   = new Pen(Color.FromArgb(bgA, 50, 50, 50));
-            g.FillRectangle(bgBrush, 0, 0, Width, Height);
+            // Opaque background — text is antialiased against solid pixels;
+            // opacity is applied per-pixel after drawing (see ApplyAlphaAndPremultiply).
+            g.Clear(Color.FromArgb(18, 18, 18));
+
+            using var borderPen = new Pen(Color.FromArgb(50, 50, 50));
             g.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
 
-            var downBase = Color.FromArgb(_settings.DownloadColor);
-            var upBase   = Color.FromArgb(_settings.UploadColor);
-            using var downBrush = new SolidBrush(Color.FromArgb(textA, downBase.R, downBase.G, downBase.B));
-            using var upBrush   = new SolidBrush(Color.FromArgb(textA, upBase.R,   upBase.G,   upBase.B));
+            using var downBrush = new SolidBrush(downBase);
+            using var upBrush   = new SolidBrush(upBase);
 
             var fmt = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
-            g.DrawString(_downText, _font, downBrush, _downRect, fmt);
-            g.DrawString(_upText,   _font, upBrush,   _upRect,   fmt);
+            if (_settings.ShowDownloadLine) g.DrawString(_downText, _font, downBrush, _downRect, fmt);
+            if (_settings.ShowUploadLine)   g.DrawString(_upText,   _font, upBrush,   _upRect,   fmt);
+
+            if (_settings.ShowSparkline)
+                DrawSparkline(g, _sparkRect, downBase, upBase);
         }
 
-        PremultiplyAlpha(bmp);
+        ApplyAlphaAndPremultiply(bmp, bgA, textA);
         BlitToScreen(bmp);
+    }
+
+    private void DrawSparkline(Graphics g, Rectangle area, Color downColor, Color upColor)
+    {
+        bool drawDown = _settings.ShowDownBars;
+        bool drawUp   = _settings.ShowUpBars;
+        if (!drawDown && !drawUp) return;
+
+        // Each direction scales to its own peak so one spike can't crush the other.
+        long maxDown = 1, maxUp = 1;
+        for (int i = 0; i < HistLen; i++)
+        {
+            if (_downHist[i] > maxDown) maxDown = _downHist[i];
+            if (_upHist[i]   > maxUp)   maxUp   = _upHist[i];
+        }
+
+        float barW = (float)area.Width / HistLen;
+
+        var prevSmoothing = g.SmoothingMode;
+        g.SmoothingMode = SmoothingMode.None;  // crisp pixel bars
+
+        using var downBrush = new SolidBrush(downColor);
+        using var upBrush   = new SolidBrush(upColor);
+
+        if (drawDown && drawUp)
+        {
+            // Split layout: download on top half, upload on bottom half, 4px gap.
+            int halfH      = (area.Height - 4) / 2;
+            int downBottom = area.Top + halfH;
+            int upTop      = area.Top + halfH + 4;
+
+            for (int i = 0; i < HistLen; i++)
+            {
+                int idx = (_histIdx + i) % HistLen;
+                int x   = area.Left + (int)(i * barW);
+                int w   = Math.Max(1, (int)barW - 1);
+
+                int dh = (int)((float)_downHist[idx] / maxDown * halfH);
+                if (dh >= 1) g.FillRectangle(downBrush, x, downBottom - dh, w, dh);
+
+                int uh = (int)((float)_upHist[idx] / maxUp * halfH);
+                if (uh >= 1) g.FillRectangle(upBrush, x, upTop, w, uh);
+            }
+        }
+        else
+        {
+            // Single bar type — expands to the full sparkline height.
+            int fullH = area.Height;
+            for (int i = 0; i < HistLen; i++)
+            {
+                int idx = (_histIdx + i) % HistLen;
+                int x   = area.Left + (int)(i * barW);
+                int w   = Math.Max(1, (int)barW - 1);
+
+                if (drawDown)
+                {
+                    int dh = (int)((float)_downHist[idx] / maxDown * fullH);
+                    if (dh >= 1) g.FillRectangle(downBrush, x, area.Bottom - dh, w, dh);
+                }
+                else
+                {
+                    int uh = (int)((float)_upHist[idx] / maxUp * fullH);
+                    if (uh >= 1) g.FillRectangle(upBrush, x, area.Top, w, uh);
+                }
+            }
+        }
+
+        g.SmoothingMode = prevSmoothing;
     }
 
     private static int Clamp255(double v) => Math.Clamp((int)(v * 255), 0, 255);
 
-    // Layered windows with AC_SRC_ALPHA require pre-multiplied alpha.
-    private static void PremultiplyAlpha(Bitmap bmp)
+    // Background pixels keep bgA; text/sparkline pixels keep textA.
+    // Premultiplication is required by UpdateLayeredWindow with AC_SRC_ALPHA.
+    // Pixel byte order for Format32bppArgb in memory: [B, G, R, A].
+    private static void ApplyAlphaAndPremultiply(Bitmap bmp, int bgA, int textA)
     {
-        var data   = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height),
-                         ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
-        int bytes  = Math.Abs(data.Stride) * bmp.Height;
-        var buffer = new byte[bytes];
-        Marshal.Copy(data.Scan0, buffer, 0, bytes);
+        var data  = bmp.LockBits(new Rectangle(0, 0, bmp.Width, bmp.Height),
+                        ImageLockMode.ReadWrite, PixelFormat.Format32bppArgb);
+        int bytes = Math.Abs(data.Stride) * bmp.Height;
+        var buf   = new byte[bytes];
+        Marshal.Copy(data.Scan0, buf, 0, bytes);
+
         for (int i = 0; i < bytes; i += 4)
         {
-            byte a = buffer[i + 3];
-            if (a < 255)
-            {
-                buffer[i]     = (byte)(buffer[i]     * a / 255);
-                buffer[i + 1] = (byte)(buffer[i + 1] * a / 255);
-                buffer[i + 2] = (byte)(buffer[i + 2] * a / 255);
-            }
+            int b = buf[i], gr = buf[i + 1], r = buf[i + 2];
+            bool isBg = (r == 18 && gr == 18 && b == 18) ||  // background
+                        (r == 50 && gr == 50 && b == 50);     // border
+            int a = isBg ? bgA : textA;
+            buf[i]     = (byte)(b  * a / 255);
+            buf[i + 1] = (byte)(gr * a / 255);
+            buf[i + 2] = (byte)(r  * a / 255);
+            buf[i + 3] = (byte)a;
         }
-        Marshal.Copy(buffer, 0, data.Scan0, bytes);
+
+        Marshal.Copy(buf, 0, data.Scan0, bytes);
         bmp.UnlockBits(data);
     }
 
@@ -229,10 +433,10 @@ internal sealed class SpeedWindow : Form
         var hBmp     = bmp.GetHbitmap(Color.FromArgb(0));
         var hOld     = SelectObject(memDc, hBmp);
 
-        var blend  = new BLENDFUNCTION { BlendOp = AC_SRC_OVER, AlphaFormat = AC_SRC_ALPHA, SourceConstantAlpha = 255 };
-        var size   = new SIZE  { cx = Width, cy = Height };
-        var srcPt  = new POINT { X  = 0,     Y  = 0 };
-        var dstPt  = new POINT { X  = Left,  Y  = Top };
+        var blend = new BLENDFUNCTION { BlendOp = AC_SRC_OVER, AlphaFormat = AC_SRC_ALPHA, SourceConstantAlpha = 255 };
+        var size  = new SIZE  { cx = Width, cy = Height };
+        var srcPt = new POINT { X  = 0,     Y  = 0 };
+        var dstPt = new POINT { X  = Left,  Y  = Top };
 
         UpdateLayeredWindow(Handle, screenDc, ref dstPt, ref size, memDc, ref srcPt, 0, ref blend, ULW_ALPHA);
 
@@ -246,7 +450,7 @@ internal sealed class SpeedWindow : Form
 
     private void OnTick(object? sender, EventArgs e)
     {
-        var (received, sent) = NetworkStats.GetTotals();
+        var (received, sent) = NetworkStats.GetTotals(_settings.AdapterName);
         var now     = DateTime.UtcNow;
         var elapsed = (now - _lastSampleTime).TotalSeconds;
         long down = 0, up = 0;
@@ -258,7 +462,15 @@ internal sealed class SpeedWindow : Form
         _lastReceived   = received;
         _lastSent       = sent;
         _lastSampleTime = now;
+
+        _downHist[_histIdx] = down;
+        _upHist[_histIdx]   = up;
+        _histIdx = (_histIdx + 1) % HistLen;
+
         UpdateSpeedText(down, up);
+
+        var tip = $"↓ {FormatSpeed(down)}  ↑ {FormatSpeed(up)}";
+        _trayIcon.Text = tip.Length > 63 ? tip[..63] : tip;
     }
 
     private void UpdateSpeedText(long downBps, long upBps)
@@ -276,6 +488,30 @@ internal sealed class SpeedWindow : Form
         if (bps >= (long)div * div) return $"{bps / ((double)div * div):F1} {mUnit}";
         if (bps >= div)             return $"{bps / (double)div:F0} {kUnit}";
         return $"{bps} B/s";
+    }
+
+    // ── Tray icon ────────────────────────────────────────────────────────────
+
+    private static Icon CreateTrayIcon()
+    {
+        using var bmp = new Bitmap(16, 16, PixelFormat.Format32bppArgb);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.Clear(Color.Transparent);
+
+            // Download arrow (green, left side)
+            using var dBrush = new SolidBrush(Color.FromArgb(60, 220, 60));
+            g.FillPolygon(dBrush, (PointF[])[new(1,3), new(7,3), new(4,10)]);
+
+            // Upload arrow (orange, right side)
+            using var uBrush = new SolidBrush(Color.FromArgb(255, 160, 30));
+            g.FillPolygon(uBrush, (PointF[])[new(9,12), new(15,12), new(12,5)]);
+        }
+        var hIcon = bmp.GetHicon();
+        var icon  = (Icon)Icon.FromHandle(hIcon).Clone();
+        DestroyIcon(hIcon);
+        return icon;
     }
 
     // ── Win32 hints ──────────────────────────────────────────────────────────
@@ -312,7 +548,13 @@ internal sealed class SpeedWindow : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) { _timer.Dispose(); _font.Dispose(); }
+        if (disposing)
+        {
+            _timer.Dispose();
+            _font.Dispose();
+            _trayIcon.Visible = false;
+            _trayIcon.Dispose();
+        }
         base.Dispose(disposing);
     }
 }
