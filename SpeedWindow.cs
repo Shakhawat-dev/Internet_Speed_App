@@ -80,7 +80,8 @@ internal sealed class SpeedWindow : Form
     // Monthly-cap notifications (fired once each per session).
     private bool _capWarned80, _capWarned100;
 
-    private DashboardForm? _dashboard;
+    private DashboardForm?    _dashboard;
+    private UsageHistoryForm? _historyForm;
 
     private AppSettings  _settings;
     private Font         _font = new("Segoe UI", 13f, FontStyle.Bold);
@@ -138,6 +139,7 @@ internal sealed class SpeedWindow : Form
 
         var menu = new ContextMenuStrip();
         menu.Items.Add("Dashboard…", null, (_, _) => OpenDashboard());
+        menu.Items.Add("Usage History…", null, (_, _) => OpenUsageHistory());
         menu.Items.Add(_showHideItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_sessionItem);
@@ -279,6 +281,43 @@ internal sealed class SpeedWindow : Form
         _dashboard = new DashboardForm(this);
         _dashboard.FormClosed += (_, _) => _dashboard = null;
         _dashboard.Show();
+    }
+
+    internal void OpenUsageHistory()
+    {
+        if (_historyForm is { IsDisposed: false })
+        {
+            _historyForm.WindowState = FormWindowState.Normal;
+            _historyForm.Activate();
+            return;
+        }
+        _historyForm = new UsageHistoryForm(this);
+        _historyForm.FormClosed += (_, _) => _historyForm = null;
+        _historyForm.Show();
+    }
+
+    /// <summary>Exports the full per-day usage history to a user-chosen CSV file.</summary>
+    internal void ExportUsageCsv(IWin32Window parent)
+    {
+        try
+        {
+            using var dlg = new SaveFileDialog
+            {
+                Filter = "CSV file (*.csv)|*.csv",
+                FileName = $"network-usage-{DateTime.Now:yyyy-MM-dd}.csv",
+            };
+            if (dlg.ShowDialog(parent) != DialogResult.OK) return;
+
+            using var w = new StreamWriter(dlg.FileName);
+            w.WriteLine("Date,DownloadBytes,UploadBytes");
+            foreach (var (date, down, up) in _usage.OrderedDays().OrderBy(d => d.date))
+                w.WriteLine($"{date:yyyy-MM-dd},{down},{up}");
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(parent, $"Export failed:\n{ex.Message}", "Export failed",
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────

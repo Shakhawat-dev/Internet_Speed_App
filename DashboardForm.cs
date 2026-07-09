@@ -93,11 +93,13 @@ internal sealed class DashboardForm : Form
         // ── Buttons ───────────────────────────────────────────────────────────
         var resetBtn = MakeButton("Reset Session", 16, 598);
         resetBtn.Click += (_, _) => { _owner.ResetSession(); RefreshData(); };
-        var exportBtn = MakeButton("Export CSV…", 152, 598);
-        exportBtn.Click += (_, _) => ExportCsv();
+        var historyBtn = MakeButton("History…", 106, 598);
+        historyBtn.Click += (_, _) => _owner.OpenUsageHistory();
+        var exportBtn = MakeButton("Export CSV…", 196, 598);
+        exportBtn.Click += (_, _) => _owner.ExportUsageCsv(this);
         var closeBtn = MakeButton("Close", 370, 598);
         closeBtn.Click += (_, _) => Close();
-        Controls.AddRange([resetBtn, exportBtn, closeBtn]);
+        Controls.AddRange([resetBtn, historyBtn, exportBtn, closeBtn]);
 
         RefreshData();
     }
@@ -164,29 +166,6 @@ internal sealed class DashboardForm : Form
         string ssid = NetworkStats.GetWifiSsid();
         _ssidLabel.Text    = "Wi-Fi:  " + (string.IsNullOrEmpty(ssid) ? "not connected" : ssid);
         _adapterLabel.Text = "Adapter:  " + (string.IsNullOrEmpty(s.AdapterName) ? "All adapters" : s.AdapterName);
-    }
-
-    private void ExportCsv()
-    {
-        try
-        {
-            using var dlg = new SaveFileDialog
-            {
-                Filter = "CSV file (*.csv)|*.csv",
-                FileName = $"network-usage-{DateTime.Now:yyyy-MM-dd}.csv",
-            };
-            if (dlg.ShowDialog(this) != DialogResult.OK) return;
-
-            using var w = new StreamWriter(dlg.FileName);
-            w.WriteLine("Date,DownloadBytes,UploadBytes");
-            foreach (var (date, down, up) in _owner.Usage.OrderedDays().OrderBy(d => d.date))
-                w.WriteLine($"{date:yyyy-MM-dd},{down},{up}");
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, $"Export failed:\n{ex.Message}", "Export failed",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
     }
 
     private static string FmtSpeed(long bps, AppSettings s) =>
