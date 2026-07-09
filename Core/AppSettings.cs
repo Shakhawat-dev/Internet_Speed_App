@@ -28,7 +28,7 @@ internal sealed class AppSettings
     public bool   ShowDownloadLine  { get; set; } = true;
     public bool   ShowUploadLine    { get; set; } = true;
     public bool   SnapToEdges       { get; set; } = true;
-    public bool   PingEnabled       { get; set; } = true;
+    public bool   PingEnabled       { get; set; } = false;
     public string PingHost          { get; set; } = "8.8.8.8";
     public bool   ShowPingOnWidget  { get; set; } = false;
     public long   MonthlyCapBytes   { get; set; } = 0;  // 0 = no cap
