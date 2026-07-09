@@ -19,6 +19,9 @@ internal sealed class SpeedWindow : Form
     private const int SnapThreshold = 24;  // px from an edge that triggers a snap
     private const int SnapMargin    = 16;  // px gap left between widget and edge
 
+    // Where "Support the Project" sends people.
+    private const string DonateUrl = "https://ko-fi.com/shakhawat_dev";
+
     // ── Services ─────────────────────────────────────────────────────────────
 
     private readonly SpeedSampler _sampler = new();
@@ -114,6 +117,7 @@ internal sealed class SpeedWindow : Form
         menu.Items.Add(_startupItem);
         menu.Items.Add("Settings…", null, (_, _) => OpenSettings());
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Support the Project ❤", null, (_, _) => OpenDonatePage());
         menu.Items.Add("Exit", null, (_, _) => ExitApp());
 
         ContextMenuStrip = menu;
@@ -351,6 +355,16 @@ internal sealed class SpeedWindow : Form
     {
         _trayIcon.Visible = false;
         Application.Exit();
+    }
+
+    private static void OpenDonatePage()
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(DonateUrl) { UseShellExecute = true });
+        }
+        catch { /* no browser available — nothing sensible to do */ }
     }
 
     private void SnapToNearestEdge()

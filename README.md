@@ -132,6 +132,20 @@ Network speed is measured by reading the total bytes sent/received across the se
 
 ---
 
+## Support the project ❤
+
+If this app is useful to you, consider supporting its development:
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Donate-FF5E5B?style=flat-square&logo=kofi&logoColor=white)](https://ko-fi.com/shakhawat_dev)
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/shakhawat_dev)
+<!-- TODO: uncomment once enrolled in GitHub Sponsors:
+[![GitHub Sponsors](https://img.shields.io/badge/GitHub-Sponsor-EA4AAA?style=flat-square&logo=githubsponsors)](https://github.com/sponsors/Shakhawat-dev)
+-->
+
+You can also support by starring the repo, reporting bugs, and sharing the app.
+
+---
+
 ## License
 
 MIT
