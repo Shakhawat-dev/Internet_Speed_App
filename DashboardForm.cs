@@ -35,7 +35,7 @@ internal sealed class DashboardForm : Form
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox     = false;
         StartPosition   = FormStartPosition.CenterScreen;
-        ClientSize      = new Size(460, 616);
+        ClientSize      = new Size(460, 634);
         BackColor       = Bg;
         ForeColor       = Color.White;
         ShowInTaskbar   = true;
@@ -84,18 +84,18 @@ internal sealed class DashboardForm : Form
         Controls.Add(chartBox);
 
         // ── Network info ─────────────────────────────────────────────────────
-        var infoBox = MakePanel(16, 494, 428, 78, "Network");
+        var infoBox = MakePanel(16, 494, 428, 96, "Network");
         _ipLabel      = MakeInfo(infoBox, "Local IP", 30);
         _ssidLabel    = MakeInfo(infoBox, "Wi-Fi",    50);
         _adapterLabel = MakeInfo(infoBox, "Adapter",  70);
         Controls.Add(infoBox);
 
         // ── Buttons ───────────────────────────────────────────────────────────
-        var resetBtn = MakeButton("Reset Session", 16, 582);
+        var resetBtn = MakeButton("Reset Session", 16, 598);
         resetBtn.Click += (_, _) => { _owner.ResetSession(); RefreshData(); };
-        var exportBtn = MakeButton("Export CSV…", 152, 582);
+        var exportBtn = MakeButton("Export CSV…", 152, 598);
         exportBtn.Click += (_, _) => ExportCsv();
-        var closeBtn = MakeButton("Close", 370, 582);
+        var closeBtn = MakeButton("Close", 370, 598);
         closeBtn.Click += (_, _) => Close();
         Controls.AddRange([resetBtn, exportBtn, closeBtn]);
 
@@ -168,14 +168,15 @@ internal sealed class DashboardForm : Form
 
     private void ExportCsv()
     {
-        using var dlg = new SaveFileDialog
-        {
-            Filter = "CSV file (*.csv)|*.csv",
-            FileName = $"network-usage-{DateTime.Now:yyyy-MM-dd}.csv",
-        };
-        if (dlg.ShowDialog(this) != DialogResult.OK) return;
         try
         {
+            using var dlg = new SaveFileDialog
+            {
+                Filter = "CSV file (*.csv)|*.csv",
+                FileName = $"network-usage-{DateTime.Now:yyyy-MM-dd}.csv",
+            };
+            if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
             using var w = new StreamWriter(dlg.FileName);
             w.WriteLine("Date,DownloadBytes,UploadBytes");
             foreach (var (date, down, up) in _owner.Usage.OrderedDays().OrderBy(d => d.date))
@@ -183,7 +184,7 @@ internal sealed class DashboardForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Could not write file:\n{ex.Message}", "Export failed",
+            MessageBox.Show(this, $"Export failed:\n{ex.Message}", "Export failed",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
@@ -252,19 +253,32 @@ internal sealed class DashboardForm : Form
 
     // ── Daily history chart ─────────────────────────────────────────────────────
 
-    private sealed class HistoryChart(SpeedWindow owner) : Panel
+    private sealed class HistoryChart : Panel
     {
+        private readonly SpeedWindow _owner;
+        private readonly ToolTip _tip = new();
+        private int _tipIndex = -1;
+        private List<(DateTime date, long down, long up)> _days = [];
+
+        internal HistoryChart(SpeedWindow owner)
+        {
+            _owner = owner;
+            SetStyle(ControlStyles.AllPaintingInWmPaint
+                   | ControlStyles.OptimizedDoubleBuffer
+                   | ControlStyles.UserPaint, true);
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.None;
 
-            var days = owner.Usage.OrderedDays()
+            _days = _owner.Usage.OrderedDays()
                 .OrderBy(d => d.date)
                 .TakeLast(30)
                 .ToList();
-            if (days.Count == 0)
+            if (_days.Count == 0)
             {
                 TextRenderer.DrawText(g, "No data yet", Font, ClientRectangle,
                     TextDim, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
@@ -272,26 +286,59 @@ internal sealed class DashboardForm : Form
             }
 
             long max = 1;
-            foreach (var (_, down, up) in days)
+            foreach (var (_, down, up) in _days)
                 max = Math.Max(max, down + up);
 
-            var s = owner.Settings;
+            var s = _owner.Settings;
             using var downBrush = new SolidBrush(Color.FromArgb(s.DownloadColor));
             using var upBrush   = new SolidBrush(Color.FromArgb(s.UploadColor));
 
-            int n = days.Count;
+            int n = _days.Count;
             float slot = (float)Width / n;
             float barW = Math.Max(2, slot - 2);
 
             for (int i = 0; i < n; i++)
             {
-                var (_, down, up) = days[i];
+                var (_, down, up) = _days[i];
                 float x = i * slot + (slot - barW) / 2;
                 int dh = (int)((float)down / max * (Height - 2));
                 int uh = (int)((float)up   / max * (Height - 2));
                 if (uh >= 1) g.FillRectangle(upBrush,   x, Height - uh, barW, uh);
                 if (dh >= 1) g.FillRectangle(downBrush, x, Height - uh - dh, barW, dh);
             }
+
+            // Y-axis scale hint: the value a full-height bar would represent.
+            TextRenderer.DrawText(g, Format.Bytes(max, s.DecimalUnits), Font,
+                new Rectangle(0, 2, Width - 4, 16), TextDim,
+                TextFormatFlags.Right | TextFormatFlags.NoPadding);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (_days.Count == 0) return;
+
+            int idx = (int)(e.X / ((float)Width / _days.Count));
+            idx = Math.Clamp(idx, 0, _days.Count - 1);
+            if (idx == _tipIndex) return;
+            _tipIndex = idx;
+
+            var (date, down, up) = _days[idx];
+            bool dec = _owner.Settings.DecimalUnits;
+            _tip.SetToolTip(this,
+                $"{date:ddd, MMM d}\n↓ {Format.Bytes(down, dec)}   ↑ {Format.Bytes(up, dec)}");
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            _tipIndex = -1;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _tip.Dispose();
+            base.Dispose(disposing);
         }
     }
 }
