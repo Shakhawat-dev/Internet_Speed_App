@@ -1,7 +1,8 @@
 using System.Drawing;
 using System.Windows.Forms;
+using InternetSpeedApp.Core;
 
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.UI;
 
 /// <summary>
 /// Day-by-day usage history table (newest first) over everything the

@@ -1,8 +1,9 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
+using InternetSpeedApp.Core;
 
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.UI;
 
 /// <summary>
 /// A normal window surfacing everything the tiny widget can't: live speeds,

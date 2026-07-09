@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.Core;
 
 /// <summary>
 /// Tracks cumulative download/upload bytes per calendar day, persisted to

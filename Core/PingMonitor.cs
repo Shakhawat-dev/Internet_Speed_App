@@ -1,6 +1,6 @@
 using System.Net.NetworkInformation;
 
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.Core;
 
 /// <summary>
 /// Periodically pings a host and exposes the most recent round-trip time and

@@ -1,7 +1,7 @@
 using System.Drawing;
 using System.Text.Json;
 
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.Core;
 
 internal sealed class AppSettings
 {

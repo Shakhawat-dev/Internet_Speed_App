@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.Core;
 
 internal static class NetworkStats
 {

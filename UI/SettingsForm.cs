@@ -1,7 +1,8 @@
 using System.Drawing;
 using System.Windows.Forms;
+using InternetSpeedApp.Core;
 
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.UI;
 
 internal sealed class SettingsForm : Form
 {

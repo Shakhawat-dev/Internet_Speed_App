@@ -1,4 +1,4 @@
-namespace InternetSpeedApp;
+namespace InternetSpeedApp.Core;
 
 /// <summary>Shared byte / speed formatting used by the widget and dashboard.</summary>
 internal static class Format
