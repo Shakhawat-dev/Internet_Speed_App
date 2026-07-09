@@ -5,9 +5,12 @@ namespace InternetSpeedApp.Interop;
 /// <summary>All Win32 P/Invoke declarations, structs, and constants in one place.</summary>
 internal static class NativeMethods
 {
-    // ── Extended window styles ──────────────────────────────────────────────
+    // ── Window styles ───────────────────────────────────────────────────────
 
+    internal const int  GWL_STYLE          = -16;
     internal const int  GWL_EXSTYLE        = -20;
+    internal const int  WS_CHILD           = 0x40000000;
+    internal const int  WS_POPUP           = unchecked((int)0x80000000);
     internal const int  WS_EX_TRANSPARENT  = 0x00000020;
     internal const int  WS_EX_TOOLWINDOW   = 0x00000080;
     internal const int  WS_EX_LAYERED      = 0x00080000;
@@ -37,6 +40,23 @@ internal static class NativeMethods
     [DllImport("user32.dll")] internal static extern int    GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] internal static extern int    SetWindowLong(IntPtr hwnd, int index, int value);
     [DllImport("user32.dll")] internal static extern bool   DestroyIcon(IntPtr hIcon);
+
+    // ── Taskbar embedding ───────────────────────────────────────────────────
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RECT { public int Left, Top, Right, Bottom; }
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr FindWindow(string? className, string? windowName);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr FindWindowEx(IntPtr parent, IntPtr after, string? className, string? windowName);
+
+    [DllImport("user32.dll")] internal static extern IntPtr SetParent(IntPtr child, IntPtr newParent);
+    [DllImport("user32.dll")] internal static extern IntPtr GetParent(IntPtr hwnd);
+    [DllImport("user32.dll")] internal static extern bool   GetWindowRect(IntPtr hwnd, out RECT rect);
+    [DllImport("user32.dll")] internal static extern bool   MoveWindow(IntPtr hwnd, int x, int y, int w, int h, bool repaint);
+    [DllImport("user32.dll")] internal static extern bool   IsWindow(IntPtr hwnd);
 
     // ── DWM ─────────────────────────────────────────────────────────────────
 

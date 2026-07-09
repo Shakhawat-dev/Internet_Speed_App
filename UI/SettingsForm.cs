@@ -31,6 +31,7 @@ internal sealed class SettingsForm : Form
     private readonly CheckBox      _snapCheck;
     private readonly CheckBox      _lockCheck;
     private readonly CheckBox      _clickThroughCheck;
+    private readonly CheckBox      _taskbarCheck;
     private readonly CheckBox      _startWithWindowsCheck;
     private readonly ComboBox      _refreshCombo;
     // Network & Data
@@ -160,12 +161,17 @@ internal sealed class SettingsForm : Form
         _lockCheck        = new CheckBox { Text = "Lock position (disable dragging)", Checked = current.LockPosition, Location = new Point(14, 68), AutoSize = true };
         _clickThroughCheck = new CheckBox { Text = "Click-through  (interact via tray icon only)", Checked = current.ClickThrough, Location = new Point(14, 94), AutoSize = true };
         _startWithWindowsCheck = new CheckBox { Text = "Start with Windows", Checked = autoStart, Location = new Point(14, 120), AutoSize = true };
-        AddLabel(pWindow, "Refresh rate:", 14, 152);
-        _refreshCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(100, 150), Width = 72 };
+        _taskbarCheck = new CheckBox
+        {
+            Text = "Show speed indicator in the taskbar (next to tray)",
+            Checked = current.ShowTaskbarIndicator, Location = new Point(14, 146), AutoSize = true,
+        };
+        AddLabel(pWindow, "Refresh rate:", 14, 178);
+        _refreshCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Location = new Point(100, 176), Width = 72 };
         _refreshCombo.Items.AddRange(["1 s", "2 s", "5 s"]);
         _refreshCombo.SelectedIndex = current.RefreshIntervalMs switch { 2000 => 1, 5000 => 2, _ => 0 };
         pWindow.Controls.AddRange([_alwaysOnTopCheck, _snapCheck, _lockCheck,
-            _clickThroughCheck, _startWithWindowsCheck, _refreshCombo]);
+            _clickThroughCheck, _startWithWindowsCheck, _taskbarCheck, _refreshCombo]);
 
         // ══ Tab: Network & Data ═══════════════════════════════════════════════
         var pNet = MakeTab("Network & Data");
@@ -223,6 +229,7 @@ internal sealed class SettingsForm : Form
                 DecimalUnits      = _decimalRadio.Checked,
                 AlwaysOnTop       = _alwaysOnTopCheck.Checked,
                 ClickThrough      = _clickThroughCheck.Checked,
+                ShowTaskbarIndicator = _taskbarCheck.Checked,
                 ShowSparkline     = _sparklineCheck.Checked,
                 ShowDownBars      = _showDownBarsCheck.Checked,
                 ShowUpBars        = _showUpBarsCheck.Checked,

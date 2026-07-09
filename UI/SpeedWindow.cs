@@ -41,6 +41,8 @@ internal sealed class SpeedWindow : Form
 
     private DashboardForm?    _dashboard;
     private UsageHistoryForm? _historyForm;
+    private TaskbarIndicator? _taskbarIndicator;
+    private readonly ToolStripMenuItem _taskbarItem;
 
     // ── Widget layout / paint state ──────────────────────────────────────────
 
@@ -103,6 +105,15 @@ internal sealed class SpeedWindow : Form
             _settings.Save();
         };
 
+        _taskbarItem = new ToolStripMenuItem("Taskbar Indicator") { Checked = false };
+        _taskbarItem.Click += (_, _) =>
+        {
+            _settings.ShowTaskbarIndicator = !_settings.ShowTaskbarIndicator;
+            _taskbarItem.Checked           = _settings.ShowTaskbarIndicator;
+            ApplyTaskbarIndicator(_settings.ShowTaskbarIndicator);
+            _settings.Save();
+        };
+
         var menu = new ContextMenuStrip();
         menu.Items.Add("Dashboard…", null, (_, _) => OpenDashboard());
         menu.Items.Add("Usage History…", null, (_, _) => OpenUsageHistory());
@@ -113,6 +124,7 @@ internal sealed class SpeedWindow : Form
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_alwaysOnTopItem);
         menu.Items.Add(_clickThroughItem);
+        menu.Items.Add(_taskbarItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_startupItem);
         menu.Items.Add("Settings…", null, (_, _) => OpenSettings());
@@ -216,6 +228,12 @@ internal sealed class SpeedWindow : Form
         UpdateSessionText();
     }
 
+    internal void SaveTaskbarIndicatorGap(int gap)
+    {
+        _settings.TaskbarIndicatorGap = gap;
+        _settings.Save();
+    }
+
     // ── Sampling tick ────────────────────────────────────────────────────────
 
     private void OnTick(object? sender, EventArgs e)
@@ -238,6 +256,9 @@ internal sealed class SpeedWindow : Form
         }
 
         _dashboard?.RefreshData();
+        _taskbarIndicator?.UpdateSpeeds(
+            $"↑: {FormatSpeed(_sampler.CurrentUp)}",
+            $"↓: {FormatSpeed(_sampler.CurrentDown)}");
 
         var tip = $"↓ {FormatSpeed(_sampler.CurrentDown)}  ↑ {FormatSpeed(_sampler.CurrentUp)}\n"
                 + $"Session: ↓ {FormatBytes(_sampler.SessionDown)}  ↑ {FormatBytes(_sampler.SessionUp)}";
@@ -345,10 +366,25 @@ internal sealed class SpeedWindow : Form
 
     // ── Widget behavior ──────────────────────────────────────────────────────
 
-    private void ToggleWidgetVisible()
+    internal void ToggleWidgetVisible()
     {
         Visible            = !Visible;
         _showHideItem.Text = Visible ? "Hide Widget" : "Show Widget";
+    }
+
+    private void ApplyTaskbarIndicator(bool show)
+    {
+        if (show && _taskbarIndicator is null or { IsDisposed: true })
+        {
+            _taskbarIndicator = new TaskbarIndicator(this, ContextMenuStrip!);
+            _taskbarIndicator.ShowInsideTaskbar();
+        }
+        else if (!show && _taskbarIndicator is { IsDisposed: false })
+        {
+            _taskbarIndicator.Close();
+            _taskbarIndicator.Dispose();
+            _taskbarIndicator = null;
+        }
     }
 
     private void ExitApp()
@@ -389,8 +425,11 @@ internal sealed class SpeedWindow : Form
         TopMost                   = s.AlwaysOnTop;
         _alwaysOnTopItem.Checked  = s.AlwaysOnTop;
         _clickThroughItem.Checked = s.ClickThrough;
+        _taskbarItem.Checked      = s.ShowTaskbarIndicator;
         _font                     = new Font("Segoe UI", s.FontSize, FontStyle.Bold);
         _timer.Interval           = s.RefreshIntervalMs;
+
+        ApplyTaskbarIndicator(s.ShowTaskbarIndicator);
 
         var probe = s.DecimalUnits ? "↓  999.9 MB/s" : "↓  999.9 MiB/s";
         var sz    = TextRenderer.MeasureText(probe, _font);
@@ -588,6 +627,7 @@ internal sealed class SpeedWindow : Form
             _usage.Save();
             _timer.Dispose();
             _font.Dispose();
+            _taskbarIndicator?.Dispose();
             _trayIcon.Visible = false;
             _trayIcon.Dispose();
         }

@@ -33,6 +33,8 @@ internal sealed class AppSettings
     public bool   ShowPingOnWidget  { get; set; } = false;
     public long   MonthlyCapBytes   { get; set; } = 0;  // 0 = no cap
     public bool   ShowBits          { get; set; } = false;  // Mbps instead of MiB/s
+    public bool   ShowTaskbarIndicator { get; set; } = false;  // ↑/↓ readout embedded in taskbar
+    public int    TaskbarIndicatorGap  { get; set; } = 8;      // px between indicator and tray area
     public bool   CompactMode       { get; set; } = false;  // single combined line
     public bool   LockPosition      { get; set; } = false;
 
