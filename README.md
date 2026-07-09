@@ -44,11 +44,17 @@ Vertical (default)       Horizontal
 
 ## Installation
 
-### Option A — Download the release (recommended)
+### Option A — Installer (recommended)
 
 1. Go to the [Releases](../../releases) page
-2. Download `InternetSpeedApp.exe`
-3. Run it — no installer needed
+2. Download one of the two installers:
+   - `InternetSpeedMonitor-Setup-<version>.exe` (~60 MB) — **full**, self-contained,
+     works on any Windows 10/11 x64 PC with no prerequisites
+   - `InternetSpeedMonitor-Setup-<version>-lite.exe` (~2 MB) — **lite**, requires the
+     [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/8.0/runtime);
+     the installer checks for it and opens the download page if it's missing
+3. Run it — installs per-user (no admin prompt), with optional desktop icon and
+   "Start automatically with Windows" task. Uninstall from Windows Settings → Apps.
 
 ### Option B — Build from source
 
@@ -60,15 +66,21 @@ cd Internet_Speed_App
 dotnet run
 ```
 
-### Option C — Publish as a self-contained single `.exe`
+### Option C — Build the installers yourself
 
-No .NET runtime required on the target machine:
+**Prerequisites:** .NET 8 SDK + [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`)
 
 ```bash
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+# Full (self-contained, ~60 MB)
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:EnableCompressionInSingleFile=true
+ISCC installer\installer.iss
+
+# Lite (framework-dependent, ~2 MB)
+dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o bin\Release\fdd-publish
+ISCC /DLite installer\installer.iss
 ```
 
-Output: `bin\Release\net8.0-windows\win-x64\publish\InternetSpeedApp.exe`
+Output: `installer\Output\InternetSpeedMonitor-Setup-<version>.exe` and `...-lite.exe`
 
 ---
 

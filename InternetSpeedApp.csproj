@@ -7,5 +7,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>InternetSpeedApp</AssemblyName>
     <RootNamespace>InternetSpeedApp</RootNamespace>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <Version>1.0.0</Version>
+    <Product>Internet Speed Monitor</Product>
+    <AssemblyTitle>Internet Speed Monitor</AssemblyTitle>
+    <Description>Floating internet speed monitor widget for Windows</Description>
+    <Company>Md. Shakhawat Hossain Shahin</Company>
+    <Copyright>© 2026 Md. Shakhawat Hossain Shahin</Copyright>
   </PropertyGroup>
 </Project>
