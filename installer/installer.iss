@@ -11,7 +11,7 @@
 ;     ISCC /DLite installer\installer.iss
 
 #define MyAppName      "Internet Speed Monitor"
-#define MyAppVersion   "1.0.0"
+#define MyAppVersion   "1.1.0"
 #define MyAppPublisher "Md. Shakhawat Hossain Shahin"
 #define MyAppURL       "https://github.com/shakhawat-dev/Internet_Speed_App"
 #define MyAppExeName   "InternetSpeedApp.exe"
